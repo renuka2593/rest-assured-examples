@@ -2,6 +2,8 @@
 
 This repository contains examples of REST API testing using Java, TestNG, and Rest Assured. It demonstrates how to perform basic GET, POST , PUT , PATCH , DELETE requests, deserialize response bodies into data model classes, and utilize data providers for parameterized testing.
 
+https://gist.github.com/renuka2593/bb92b81fc58bee896cd597e45415b7fd
+
 ### Prerequisites
 * Java Development Kit (JDK) installed
 * Maven installed
