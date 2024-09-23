@@ -1,0 +1,202 @@
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * Generates an HTML report from a given accessibility JSON payload.
+ * @param {Array} accessibilityResults - The JSON data representing the accessibility results.
+ * @param {string} reportFilePath - The file path where the report will be saved (e.g., './accessibility-report.html').
+ * @param {string} environment - The environment name (e.g., 'Production', 'Staging').
+ * @param {string} browser - The browser used for the test (e.g., 'Chrome', 'Firefox').
+ */
+function generateAccessibilityReport(accessibilityResults, reportFilePath, environment, browser) {
+  let totalViolations = 0;
+  let impactCounts = { serious: 0, moderate: 0, minor: 0, none: 0 };
+
+  // Calculate total violations and impact counts for the graph
+  accessibilityResults.forEach(result => {
+    result.results.violations.forEach(violation => {
+      totalViolations += violation.nodes.length;
+      impactCounts[violation.impact] = (impactCounts[violation.impact] || 0) + violation.nodes.length;
+    });
+  });
+
+  // Create the base HTML template for the report
+  let htmlReport = `
+    <html>
+    <head>
+      <title>Accessibility Report</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background-color: #f4f4f4; }
+        h1, h2 { color: #333; }
+        h1 { border-bottom: 2px solid #333; padding-bottom: 10px; }
+        h2 { margin-top: 40px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 40px; }
+        th, td { padding: 12px 15px; border: 1px solid #ddd; }
+        th { background-color: #f4f4f4; text-align: left; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        .serious { background-color: #ffcccc; }
+        .moderate { background-color: #ffe6cc; }
+        .minor { background-color: #ffffcc; }
+        .none { background-color: #ccffcc; }
+        .header { background-color: #333; color: #fff; padding: 20px; text-align: center; }
+        .summary { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
+        .summary div { margin-right: 20px; }
+        .impact-badge { padding: 5px 10px; border-radius: 5px; color: #fff; font-size: 12px; }
+        .serious-badge { background-color: #d9534f; }
+        .moderate-badge { background-color: #f0ad4e; }
+        .minor-badge { background-color: #5bc0de; }
+        .none-badge { background-color: #5cb85c; }
+        pre { white-space: pre-wrap; word-wrap: break-word; background-color: #f9f9f9; padding: 10px; }
+        a { color: #007bff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        canvas { margin: 20px auto; display: block; }
+        .filter-buttons { margin-bottom: 20px; }
+        button { padding: 10px 20px; margin-right: 10px; border: none; border-radius: 5px; background-color: #007bff; color: #fff; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+      </style>
+      <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+      <script>
+        function filterTable(impactLevel) {
+          const rows = document.querySelectorAll('tr[data-impact]');
+          rows.forEach(row => {
+            if (impactLevel === 'all' || row.dataset.impact === impactLevel) {
+              row.style.display = '';
+            } else {
+              row.style.display = 'none';
+            }
+          });
+        }
+
+        window.onload = function () {
+          const ctx = document.getElementById('impactChart').getContext('2d');
+          new Chart(ctx, {
+            type: 'pie',
+            data: {
+              labels: ['Serious', 'Moderate', 'Minor', 'None'],
+              datasets: [{
+                data: [${impactCounts.serious}, ${impactCounts.moderate}, ${impactCounts.minor}, ${impactCounts.none}],
+                backgroundColor: ['#d9534f', '#f0ad4e', '#5bc0de', '#5cb85c']
+              }]
+            },
+            options: {
+              responsive: true,
+              plugins: {
+                legend: {
+                  position: 'top',
+                },
+              }
+            }
+          });
+        }
+      </script>
+    </head>
+    <body>
+      <div class="header">
+        <h1>Accessibility Report</h1>
+        <div>Environment: ${environment}</div>
+        <div>Browser: ${browser}</div>
+      </div>
+
+      <div class="summary">
+        <div>Total Violations: ${totalViolations}</div>
+        <canvas id="impactChart" width="400" height="400"></canvas>
+      </div>
+
+      <div class="filter-buttons">
+        <button onclick="filterTable('all')">Show All</button>
+        <button onclick="filterTable('serious')">Serious</button>
+        <button onclick="filterTable('moderate')">Moderate</button>
+        <button onclick="filterTable('minor')">Minor</button>
+        <button onclick="filterTable('none')">None</button>
+      </div>
+  `;
+
+  // Iterate through each page's result and build the HTML content
+  accessibilityResults.forEach(result => {
+    htmlReport += `<h2>${result.page || 'Unknown Page'}</h2>`;
+
+    if (result.results && result.results.violations.length === 0 && result.results.incomplete.length === 0) {
+      htmlReport += `<p>No violations or incomplete checks found on this page.</p>`;
+    } else {
+      // Violations Section
+      if (result.results && result.results.violations.length > 0) {
+        htmlReport += `
+          <h3>Violations</h3>
+          <table>
+            <tr>
+              <th>Violation</th>
+              <th>Impact</th>
+              <th>Description</th>
+              <th>HTML Element</th>
+              <th>Help URL</th>
+            </tr>
+        `;
+
+        // Iterate through violations
+        result.results.violations.forEach(violation => {
+          violation.nodes.forEach(node => {
+            const impactBadge = getImpactBadge(violation.impact);
+            htmlReport += `
+              <tr data-impact="${violation.impact}">
+                <td>${violation.id}</td>
+                <td>${impactBadge}</td>
+                <td>${violation.description}</td>
+                <td><pre>${node.html}</pre></td>
+                <td><a href="${violation.helpUrl}" target="_blank">More Info</a></td>
+              </tr>
+            `;
+          });
+        });
+
+        htmlReport += `</table>`;
+      }
+
+      // Incomplete Section
+      if (result.results && result.results.incomplete.length > 0) {
+        htmlReport += `
+          <h3>Incomplete</h3>
+          <table>
+            <tr>
+              <th>Check</th>
+              <th>Impact</th>
+              <th>Description</th>
+              <th>HTML Element</th>
+              <th>Help URL</th>
+            </tr>
+        `;
+
+        // Iterate through incomplete checks
+        result.results.incomplete.forEach(incomplete => {
+          incomplete.nodes.forEach(node => {
+            const impactBadge = getImpactBadge(incomplete.impact);
+            htmlReport += `
+              <tr data-impact="${incomplete.impact}">
+                <td>${incomplete.id}</td>
+                <td>${impactBadge}</td>
+                <td>${incomplete.description}</td>
+                <td><pre>${node.html}</pre></td>
+                <td><a href="${incomplete.helpUrl}" target="_blank">More Info</a></td>
+              </tr>
+            `;
+          });
+        });
+
+        htmlReport += `</table>`;
+      }
+    }
+  });
+
+  // Closing HTML tags
+  htmlReport += `
+    </body>
+    </html>
+  `;
+
+  // Write the HTML report to the specified file path
+  fs.writeFileSync(path.resolve(reportFilePath), htmlReport, 'utf8');
+  console.log(`Accessibility report generated at: ${reportFilePath}`);
+}
+
+/**
+ * Returns the HTML badge for impact levels.
+ * @
